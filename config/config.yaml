@@ -1,0 +1,10 @@
+server:
+  ip: "127.0.0.1"
+  port: "8080"
+video:
+  scan_dirs:
+    - "./videos"
+  supported_formats:
+    - ".mp4"
+    - ".mkv"
+    - ".avi" 
