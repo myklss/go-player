@@ -77,6 +77,7 @@ docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/co
 
 ### Docker直接运行
 运行容器
+```bash
 docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/config --name go-player klss/go-player
 ```
 
