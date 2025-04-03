@@ -22,6 +22,7 @@ type Config struct {
 	Video struct {
 		ScanDirs         []string `yaml:"scan_dirs"`
 		SupportedFormats []string `yaml:"supported_formats"`
+		RandomPlay       bool     `yaml:"random_play"`
 	} `yaml:"video"`
 	Access struct {
 		EnableCode bool   `yaml:"enable_code"`
@@ -161,7 +162,8 @@ func (vm *VideoManager) handleGetVideos(config *Config) gin.HandlerFunc {
 		defer vm.mutex.RUnlock()
 
 		c.JSON(http.StatusOK, gin.H{
-			"videos": vm.Videos,
+			"videos":      vm.Videos,
+			"random_play": config.Video.RandomPlay,
 		})
 	}
 }

@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let isFullScreen = false;
     let isTransitioning = false;
     let accessVerified = false;
+    let randomPlay = false;
     
     // 检测是否是移动设备
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -50,6 +51,9 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(data => {
                 videos = data.videos;
+                randomPlay = data.random_play; // 设置随机播放状态
+                console.log("随机播放模式:", randomPlay ? "开启" : "关闭");
+                
                 if (videos.length > 0) {
                     // 只加载第一个视频，但不自动播放
                     loadVideo(0);
@@ -159,6 +163,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     .then(response => response.json())
                     .then(data => {
                         videos = data.videos;
+                        randomPlay = data.random_play; // 设置随机播放状态
+                        console.log("随机播放模式:", randomPlay ? "开启" : "关闭");
+                        
                         if (videos.length > 0) {
                             loadVideo(0);
                         } else {
@@ -351,10 +358,25 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 预加载下一个视频
     function preloadNextVideo(index) {
-        if (index >= 0 && index < videos.length) {
-            nextVideoPlayer.src = '/videos/' + videos[index];
-            nextVideoIndex = index;
-            nextVideoPlayer.load();
+        if (randomPlay && videos.length > 1) {
+            // 随机模式下，预加载一个随机视频
+            let randomIndex;
+            do {
+                randomIndex = Math.floor(Math.random() * videos.length);
+            } while (randomIndex === currentVideoIndex);
+            
+            if (randomIndex >= 0 && randomIndex < videos.length) {
+                nextVideoPlayer.src = '/videos/' + videos[randomIndex];
+                nextVideoIndex = randomIndex;
+                nextVideoPlayer.load();
+            }
+        } else {
+            // 顺序模式下的正常预加载
+            if (index >= 0 && index < videos.length) {
+                nextVideoPlayer.src = '/videos/' + videos[index];
+                nextVideoIndex = index;
+                nextVideoPlayer.load();
+            }
         }
     }
     
@@ -517,7 +539,22 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 播放下一个视频
     function playNextVideo() {
-        let nextIndex = (currentVideoIndex + 1) % videos.length;
+        let nextIndex;
+        
+        if (randomPlay && videos.length > 1) {
+            // 随机模式，选择一个不同的随机索引
+            let randomIndex;
+            do {
+                randomIndex = Math.floor(Math.random() * videos.length);
+            } while (randomIndex === currentVideoIndex);
+            
+            nextIndex = randomIndex;
+            console.log("随机播放下一个视频:", nextIndex);
+        } else {
+            // 顺序模式
+            nextIndex = (currentVideoIndex + 1) % videos.length;
+        }
+        
         playVideo(nextIndex);
     }
     
@@ -573,14 +610,87 @@ document.addEventListener('DOMContentLoaded', function() {
     let touchStartX = 0;
     let touchStartY = 0;
     let touchStartTime = 0;
+    let touchLastX = 0;
+    let isSeeking = false;
+    let seekStartTime = 0;
+    let lastSeekTime = 0;
+    let originalVideoTime = 0;
+    let cumulativeSeekOffset = 0;
     const MIN_SWIPE_DISTANCE = 50;
     const MAX_TAP_DURATION = 200; // 毫秒
     
     document.addEventListener('touchstart', (e) => {
+        // 如果点击在视频上才处理快进快退
+        if (!e.target.closest('.video-container') || accessCodeOverlay.classList.contains('hidden') === false) {
+            return;
+        }
+        
         touchStartX = e.touches[0].clientX;
+        touchLastX = touchStartX;
         touchStartY = e.touches[0].clientY;
         touchStartTime = Date.now();
+        
+        // 如果视频已经加载，准备可能的快进快退操作
+        if (videoLoaded && !videoPlayer.paused) {
+            seekStartTime = Date.now();
+            originalVideoTime = videoPlayer.currentTime;
+            isSeeking = false;
+            cumulativeSeekOffset = 0;
+            
+            // 显示控制栏
+            showControls();
+        }
     });
+    
+    document.addEventListener('touchmove', (e) => {
+        // 如果不是在视频容器内触摸，或者在进度条上拖动，则忽略快进快退逻辑
+        if (!e.target.closest('.video-container') || isDraggingProgress || 
+            accessCodeOverlay.classList.contains('hidden') === false) {
+            return;
+        }
+        
+        const touchCurrentX = e.touches[0].clientX;
+        const touchCurrentY = e.touches[0].clientY;
+        const deltaX = touchCurrentX - touchStartX;
+        const deltaY = touchCurrentY - touchStartY;
+        const movementX = touchCurrentX - touchLastX;
+        touchLastX = touchCurrentX;
+        
+        // 检测是水平滑动还是垂直滑动
+        if (!isSeeking && Math.abs(deltaX) > 10 && Math.abs(deltaX) > Math.abs(deltaY)) {
+            isSeeking = true;
+            // 添加一个视觉指示，显示正在快进或快退
+            startPrompt.classList.remove('hidden');
+            startPrompt.textContent = "快进/快退中...";
+        }
+        
+        // 如果是水平滑动，执行快进快退
+        if (isSeeking && videoLoaded && !videoPlayer.paused) {
+            // 计算滑动距离对应的时间调整 (每像素1秒，根据需求调整)
+            const seekAdjustment = movementX * 1;
+            cumulativeSeekOffset += seekAdjustment;
+            
+            // 计算新的播放时间
+            let newTime = originalVideoTime + cumulativeSeekOffset;
+            
+            // 确保时间在有效范围内
+            newTime = Math.max(0, Math.min(newTime, videoPlayer.duration));
+            
+            // 更新视频播放时间
+            videoPlayer.currentTime = newTime;
+            
+            // 更新快进快退指示
+            const direction = seekAdjustment > 0 ? "快进" : "快退";
+            const secondsDisplay = Math.abs(cumulativeSeekOffset).toFixed(1);
+            startPrompt.textContent = `${direction} ${secondsDisplay} 秒`;
+            
+            // 确保控制栏可见
+            showControls();
+            
+            // 防止页面滚动
+            e.preventDefault();
+        }
+    }, { passive: false });
     
     document.addEventListener('touchend', (e) => {
         const touchEndX = e.changedTouches[0].clientX;
@@ -590,12 +700,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const deltaX = touchEndX - touchStartX;
         const deltaY = touchEndY - touchStartY;
         
+        // 如果是在进行快进快退，结束后隐藏提示
+        if (isSeeking) {
+            hideStartPrompt();
+            isSeeking = false;
+            showControls(); // 确保控制栏可见
+            return; // 不执行后面的滑动逻辑
+        }
+        
         // 如果是短暂触摸（类似点击），则处理为点击事件
         if (touchDuration < MAX_TAP_DURATION && Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
             return; // 让点击事件处理器来处理
         }
         
-        // 根据滑动方向和距离判断操作
+        // 处理常规滑动手势
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > MIN_SWIPE_DISTANCE) {
             // 水平滑动 - 调整播放进度
             const seekTime = deltaX > 0 ? 10 : -10;
@@ -728,6 +846,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const pos = (e.clientX - rect.left) / rect.width;
         videoPlayer.currentTime = pos * videoPlayer.duration;
         updateProgress();
+        
+        // 重新显示控制栏并重置计时器
+        showControls();
     });
     
     // 进度条拖动（移动设备上的滑动）
@@ -747,7 +868,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }, { passive: true });
     
     document.addEventListener('touchend', () => {
-        isDraggingProgress = false;
+        if (isDraggingProgress) {
+            // 拖动结束后重新显示控制栏并重置计时器
+            showControls();
+            isDraggingProgress = false;
+        }
     });
     
     function updateProgressFromTouch(touch) {
