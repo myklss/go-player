@@ -1,5 +1,5 @@
 server:
-  ip: "127.0.0.1"
+  ip: "0.0.0.0"
   port: "8080"
 video:
   scan_dirs:
@@ -7,4 +7,7 @@ video:
   supported_formats:
     - ".mp4"
     - ".mkv"
-    - ".avi" 
+    - ".avi"
+access:
+  enable_code: true
+  access_code: "123456" 

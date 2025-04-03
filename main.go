@@ -23,6 +23,10 @@ type Config struct {
 		ScanDirs         []string `yaml:"scan_dirs"`
 		SupportedFormats []string `yaml:"supported_formats"`
 	} `yaml:"video"`
+	Access struct {
+		EnableCode bool   `yaml:"enable_code"`
+		AccessCode string `yaml:"access_code"`
+	} `yaml:"access"`
 }
 
 type VideoManager struct {
@@ -104,14 +108,62 @@ func handleIndex(c *gin.Context) {
 	c.HTML(http.StatusOK, "index.html", nil)
 }
 
-// 获取视频列表API
-func (vm *VideoManager) handleGetVideos(c *gin.Context) {
-	vm.mutex.RLock()
-	defer vm.mutex.RUnlock()
+// 获取访问码配置状态
+func handleAccessCodeStatus(config *Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"enable_code": config.Access.EnableCode,
+		})
+	}
+}
 
-	c.JSON(http.StatusOK, gin.H{
-		"videos": vm.Videos,
-	})
+// 验证访问码
+func handleVerifyAccessCode(config *Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var request struct {
+			Code string `json:"code"`
+		}
+
+		if err := c.ShouldBindJSON(&request); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "无效的请求"})
+			return
+		}
+
+		if request.Code == config.Access.AccessCode {
+			// 设置会话cookie，浏览器关闭时过期，刷新页面不会过期
+			// 确保设置了正确的域名和路径
+			// SameSite默认为Lax，允许在GET请求中发送cookie
+			// HttpOnly设为false允许JavaScript访问cookie
+			c.SetCookie("access_verified", "true", 0, "/", "", false, false)
+			c.JSON(http.StatusOK, gin.H{"status": "success"})
+		} else {
+			c.JSON(http.StatusUnauthorized, gin.H{"status": "failed", "message": "访问码错误"})
+		}
+	}
+}
+
+// 获取视频列表API
+func (vm *VideoManager) handleGetVideos(config *Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// 如果开启了访问码验证，检查认证状态
+		if config.Access.EnableCode {
+			// 从cookie中获取认证状态
+			_, err := c.Cookie("access_verified")
+			if err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{
+					"error": "需要访问码验证",
+				})
+				return
+			}
+		}
+
+		vm.mutex.RLock()
+		defer vm.mutex.RUnlock()
+
+		c.JSON(http.StatusOK, gin.H{
+			"videos": vm.Videos,
+		})
+	}
 }
 
 func main() {
@@ -134,7 +186,9 @@ func main() {
 
 	// API路由
 	r.GET("/", handleIndex)
-	r.GET("/api/videos", videoManager.handleGetVideos)
+	r.GET("/api/access-status", handleAccessCodeStatus(config))
+	r.POST("/api/verify-access", handleVerifyAccessCode(config))
+	r.GET("/api/videos", videoManager.handleGetVideos(config))
 
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%s", config.Server.IP, config.Server.Port)
