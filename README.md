@@ -41,6 +41,10 @@ video:
     - ".mp4"       # 支持的视频格式
     - ".mkv"
     - ".avi"
+  random_play: false	# 随机播放
+access:
+  enable_code: true		# 是否开启访问码
+  access_code: "123456" 
 ```
 
 4. 把你的视频文件放到 `videos` 目录下
