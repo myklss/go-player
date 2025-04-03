@@ -32,7 +32,7 @@ go mod tidy
 3. 修改配置文件(config/config.yaml)：
 ```yaml
 server:
-  ip: "127.0.0.1"  # 服务器IP地址
+  ip: "0.0.0.0"  # 服务器IP地址
   port: "8080"     # 服务器端口
 video:
   scan_dirs:
