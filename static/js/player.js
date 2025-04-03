@@ -358,19 +358,29 @@ document.addEventListener('DOMContentLoaded', function() {
                 nextVideoPlayer.style.objectFit = 'contain';
             }
             
-            // 预加载下一个视频（只在非随机模式下预加载）
-            if (!randomPlay) {
-                preloadNextVideo((index + 1) % videos.length);
-            }
+            // 预加载下一个视频（无论是否为随机模式）
+            preloadNextVideo();
         }
     }
     
     // 预加载下一个视频
-    function preloadNextVideo(index) {
-        // 只有在非随机模式下才进行预加载，减少不必要的资源占用
-        if (!randomPlay && index >= 0 && index < videos.length) {
-            nextVideoPlayer.src = '/videos/' + videos[index];
-            nextVideoIndex = index;
+    function preloadNextVideo() {
+        let nextIndex;
+        
+        if (randomPlay && videos.length > 1) {
+            // 随机模式下，预先决定下一个随机视频
+            const randomIndex = Math.floor(Math.random() * (videos.length - 1));
+            // 避免选中当前视频
+            nextIndex = randomIndex >= currentVideoIndex ? randomIndex + 1 : randomIndex;
+            console.log("预加载随机视频:", nextIndex, "文件名:", videos[nextIndex]);
+        } else {
+            // 顺序模式
+            nextIndex = (currentVideoIndex + 1) % videos.length;
+        }
+        
+        if (nextIndex >= 0 && nextIndex < videos.length) {
+            nextVideoPlayer.src = '/videos/' + videos[nextIndex];
+            nextVideoIndex = nextIndex;
             nextVideoPlayer.load();
         }
     }
@@ -401,7 +411,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // 如果下一个视频已经预加载好并且就是我们要播放的
-        if (nextVideoIndex === index && !randomPlay) {
+        if (nextVideoIndex === index) {
             // 准备淡入淡出效果
             videoPlayer.style.opacity = '1';
             nextVideoPlayer.style.opacity = '0';
@@ -440,10 +450,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     // 更新索引和预加载下一个视频
                     currentVideoIndex = index;
                     
-                    // 只在非随机模式下预加载下一个视频
-                    if (!randomPlay) {
-                        preloadNextVideo((index + 1) % videos.length);
-                    }
+                    // 预加载下一个视频(无论是否为随机模式)
+                    preloadNextVideo();
                     
                     isTransitioning = false;
                 }, 500); // 与CSS过渡时间匹配
@@ -454,7 +462,10 @@ document.addEventListener('DOMContentLoaded', function() {
             // 先隐藏播放器避免短时间内的黑屏问题
             videoPlayer.style.opacity = '0';
             
-            videoPlayer.src = '/videos/' + videos[index];
+            // 避免重复加载相同的资源
+            if (videoPlayer.src !== '/videos/' + videos[index]) {
+                videoPlayer.src = '/videos/' + videos[index];
+            }
             currentVideoIndex = index;
             
             // 更新视频标题
@@ -473,10 +484,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 setTimeout(() => {
                     videoPlayer.style.opacity = '1';
                     
-                    // 只在非随机模式下预加载下一个视频
-                    if (!randomPlay) {
-                        preloadNextVideo((index + 1) % videos.length);
-                    }
+                    // 预加载下一个视频(无论是否为随机模式)
+                    preloadNextVideo();
                     
                     isTransitioning = false;
                 }, 10);
@@ -491,6 +500,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     videoPlayer.style.opacity = '1';
                     isTransitioning = false;
+                    
+                    // 即使加载超时也要预加载下一个视频
+                    preloadNextVideo();
                 }
             }, 2000);
         }
@@ -539,10 +551,15 @@ document.addEventListener('DOMContentLoaded', function() {
         let nextIndex;
         
         if (randomPlay && videos.length > 1) {
-            // 随机模式，选择一个不同的随机索引
-            const randomIndex = Math.floor(Math.random() * (videos.length - 1));
-            // 避免选中当前视频
-            nextIndex = randomIndex >= currentVideoIndex ? randomIndex + 1 : randomIndex;
+            // 使用已经预加载的随机视频（如果存在）
+            if (nextVideoIndex >= 0 && nextVideoIndex != currentVideoIndex) {
+                nextIndex = nextVideoIndex;
+            } else {
+                // 否则生成新的随机索引
+                const randomIndex = Math.floor(Math.random() * (videos.length - 1));
+                // 避免选中当前视频
+                nextIndex = randomIndex >= currentVideoIndex ? randomIndex + 1 : randomIndex;
+            }
             console.log("随机播放下一个视频:", nextIndex);
         } else {
             // 顺序模式
