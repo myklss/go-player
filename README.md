@@ -85,16 +85,15 @@ docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/co
 ```bash
 version: '3'
 services:
-  video-player:
-    build:
-      context: .
-      dockerfile: klss/go-player
+  go-player:
+    image: klss/go-player
+    container_name: go-player
     ports:
       - "8080:8080"
     volumes:
       - ./videos:/app/videos
       - ./config:/app/config
-    restart: unless-stopped 
+    restart: unless-stopped
 ```
 
 ## 访问应用
