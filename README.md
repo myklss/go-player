@@ -81,6 +81,22 @@ docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/co
 docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/config --name go-player klss/go-player
 ```
 
+### Docker Compose直接运行
+```bash
+version: '3'
+services:
+  video-player:
+    build:
+      context: .
+      dockerfile: klss/go-player
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./videos:/app/videos
+      - ./config:/app/config
+    restart: unless-stopped 
+    ```
+
 ## 访问应用
 
 打开浏览器，访问 http://127.0.0.1:8080 (或你配置的IP和端口)
