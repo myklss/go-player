@@ -51,7 +51,7 @@ go build
 ./go-player  # Windows下使用 go-player.exe
 ```
 
-### Docker安装
+### Docker构建安装
 
 1. 克隆本仓库：
 ```bash
@@ -74,6 +74,11 @@ docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/co
 ```
 
 4. 将视频文件放到本地的 `videos` 目录下，它会自动映射到容器内。
+
+### Docker直接运行
+运行容器
+docker run -d -p 8080:8080 -v $(pwd)/videos:/app/videos -v $(pwd)/config:/app/config --name go-player klss/go-player
+```
 
 ## 访问应用
 
