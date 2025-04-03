@@ -95,7 +95,7 @@ services:
       - ./videos:/app/videos
       - ./config:/app/config
     restart: unless-stopped 
-    ```
+```
 
 ## 访问应用
 
