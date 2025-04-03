@@ -27,6 +27,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let isTransitioning = false;
     let accessVerified = false;
     let randomPlay = false;
+    let playHistory = []; // 添加播放历史记录
+    let historyIndex = -1; // 历史索引位置
     
     // 检测是否是移动设备
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -334,6 +336,11 @@ document.addEventListener('DOMContentLoaded', function() {
         if (index >= 0 && index < videos.length) {
             videoPlayer.src = '/videos/' + videos[index];
             currentVideoIndex = index;
+            
+            // 更新播放历史
+            playHistory = [index]; // 重置播放历史，只保留当前索引
+            historyIndex = 0;
+            
             updatePlayPauseButton();
             // 加载时显示控制栏
             showControls();
@@ -351,37 +358,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 nextVideoPlayer.style.objectFit = 'contain';
             }
             
-            // 预加载下一个视频
-            preloadNextVideo((index + 1) % videos.length);
+            // 预加载下一个视频（只在非随机模式下预加载）
+            if (!randomPlay) {
+                preloadNextVideo((index + 1) % videos.length);
+            }
         }
     }
     
     // 预加载下一个视频
     function preloadNextVideo(index) {
-        if (randomPlay && videos.length > 1) {
-            // 随机模式下，预加载一个随机视频
-            let randomIndex;
-            do {
-                randomIndex = Math.floor(Math.random() * videos.length);
-            } while (randomIndex === currentVideoIndex);
-            
-            if (randomIndex >= 0 && randomIndex < videos.length) {
-                nextVideoPlayer.src = '/videos/' + videos[randomIndex];
-                nextVideoIndex = randomIndex;
-                nextVideoPlayer.load();
-            }
-        } else {
-            // 顺序模式下的正常预加载
-            if (index >= 0 && index < videos.length) {
-                nextVideoPlayer.src = '/videos/' + videos[index];
-                nextVideoIndex = index;
-                nextVideoPlayer.load();
-            }
+        // 只有在非随机模式下才进行预加载，减少不必要的资源占用
+        if (!randomPlay && index >= 0 && index < videos.length) {
+            nextVideoPlayer.src = '/videos/' + videos[index];
+            nextVideoIndex = index;
+            nextVideoPlayer.load();
         }
     }
     
     // 平滑切换到下一个视频
-    function smoothSwitchVideo(index) {
+    function smoothSwitchVideo(index, addToHistory = true) {
         if (isTransitioning || index === currentVideoIndex || index < 0 || index >= videos.length) {
             return;
         }
@@ -392,8 +387,21 @@ document.addEventListener('DOMContentLoaded', function() {
         // 记录当前播放状态和进度
         const wasPlaying = !videoPlayer.paused;
         
+        // 如果需要添加到历史记录
+        if (addToHistory) {
+            // 如果从历史记录中的某个点继续播放，则删除该点之后的所有历史
+            if (historyIndex >= 0 && historyIndex < playHistory.length - 1) {
+                playHistory = playHistory.slice(0, historyIndex + 1);
+            }
+            
+            // 添加到播放历史
+            playHistory.push(index);
+            historyIndex = playHistory.length - 1;
+            console.log("播放历史:", playHistory, "当前位置:", historyIndex);
+        }
+        
         // 如果下一个视频已经预加载好并且就是我们要播放的
-        if (nextVideoIndex === index) {
+        if (nextVideoIndex === index && !randomPlay) {
             // 准备淡入淡出效果
             videoPlayer.style.opacity = '1';
             nextVideoPlayer.style.opacity = '0';
@@ -431,81 +439,70 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // 更新索引和预加载下一个视频
                     currentVideoIndex = index;
-                    preloadNextVideo((index + 1) % videos.length);
+                    
+                    // 只在非随机模式下预加载下一个视频
+                    if (!randomPlay) {
+                        preloadNextVideo((index + 1) % videos.length);
+                    }
                     
                     isTransitioning = false;
                 }, 500); // 与CSS过渡时间匹配
             }, 10);
         } else {
             // 如果预加载的不是我们需要的视频，则直接加载
-            nextVideoPlayer.src = '/videos/' + videos[index];
-            nextVideoIndex = index;
             
-            // 等待新视频加载足够的数据
-            nextVideoPlayer.oncanplay = function() {
+            // 先隐藏播放器避免短时间内的黑屏问题
+            videoPlayer.style.opacity = '0';
+            
+            videoPlayer.src = '/videos/' + videos[index];
+            currentVideoIndex = index;
+            
+            // 更新视频标题
+            videoTitle.textContent = getVideoTitle(videos[index]);
+            
+            // 在加载完成后播放并淡入
+            videoPlayer.oncanplay = function() {
                 // 清除事件监听器以防重复触发
-                nextVideoPlayer.oncanplay = null;
+                videoPlayer.oncanplay = null;
                 
-                // 准备淡入淡出效果
-                videoPlayer.style.opacity = '1';
-                nextVideoPlayer.style.opacity = '0';
+                if (wasPlaying) {
+                    videoPlayer.play();
+                }
                 
-                // 准备播放已加载的视频
-                nextVideoPlayer.play().catch(e => {
-                    console.error('播放下一个视频失败:', e);
-                });
-                
-                // 淡入淡出切换
+                // 淡入新视频
                 setTimeout(() => {
-                    nextVideoPlayer.style.opacity = '1';
-                    videoPlayer.style.opacity = '0';
+                    videoPlayer.style.opacity = '1';
                     
-                    // 更新视频标题
-                    videoTitle.textContent = getVideoTitle(videos[index]);
-                    
-                    // 等待淡入淡出效果完成
-                    setTimeout(() => {
-                        // 交换两个播放器的角色
-                        const tempSrc = videoPlayer.src;
-                        videoPlayer.src = nextVideoPlayer.src;
-                        videoPlayer.currentTime = nextVideoPlayer.currentTime;
-                        
-                        if (wasPlaying) {
-                            videoPlayer.play();
-                        }
-                        
-                        // 重置样式
-                        videoPlayer.style.opacity = '1';
-                        nextVideoPlayer.style.opacity = '0';
-                        
-                        // 更新索引和预加载下一个视频
-                        currentVideoIndex = index;
+                    // 只在非随机模式下预加载下一个视频
+                    if (!randomPlay) {
                         preloadNextVideo((index + 1) % videos.length);
-                        
-                        isTransitioning = false;
-                    }, 500); // 与CSS过渡时间匹配
+                    }
+                    
+                    isTransitioning = false;
                 }, 10);
             };
             
             // 处理加载超时
             setTimeout(() => {
                 if (isTransitioning) {
-                    console.log("视频加载超时，使用普通切换");
-                    // 如果超过3秒还没加载好，使用普通方式切换
+                    console.log("视频加载超时，尝试直接播放");
+                    if (wasPlaying) {
+                        videoPlayer.play();
+                    }
+                    videoPlayer.style.opacity = '1';
                     isTransitioning = false;
-                    playVideo(index);
                 }
-            }, 3000);
+            }, 2000);
         }
     }
     
     // 播放指定索引的视频
-    function playVideo(index) {
+    function playVideo(index, addToHistory = true) {
         if (index >= 0 && index < videos.length) {
             // 如果是新视频，需要先加载
             if (currentVideoIndex !== index) {
                 // 尝试平滑切换
-                smoothSwitchVideo(index);
+                smoothSwitchVideo(index, addToHistory);
                 return;
             }
             
@@ -543,25 +540,34 @@ document.addEventListener('DOMContentLoaded', function() {
         
         if (randomPlay && videos.length > 1) {
             // 随机模式，选择一个不同的随机索引
-            let randomIndex;
-            do {
-                randomIndex = Math.floor(Math.random() * videos.length);
-            } while (randomIndex === currentVideoIndex);
-            
-            nextIndex = randomIndex;
+            const randomIndex = Math.floor(Math.random() * (videos.length - 1));
+            // 避免选中当前视频
+            nextIndex = randomIndex >= currentVideoIndex ? randomIndex + 1 : randomIndex;
             console.log("随机播放下一个视频:", nextIndex);
         } else {
             // 顺序模式
             nextIndex = (currentVideoIndex + 1) % videos.length;
         }
         
-        playVideo(nextIndex);
+        playVideo(nextIndex, true);
     }
     
     // 播放上一个视频
     function playPreviousVideo() {
-        let prevIndex = (currentVideoIndex - 1 + videos.length) % videos.length;
-        playVideo(prevIndex);
+        // 如果有播放历史并且不是在第一个位置
+        if (playHistory.length > 1 && historyIndex > 0) {
+            // 从历史记录中获取上一个视频
+            historyIndex--;
+            const prevIndex = playHistory[historyIndex];
+            console.log("播放历史记录中的上一个视频:", prevIndex);
+            
+            // 播放上一个视频，不添加到历史中
+            playVideo(prevIndex, false);
+        } else {
+            // 如果没有历史记录或者在第一个位置，则按顺序播放上一个
+            let prevIndex = (currentVideoIndex - 1 + videos.length) % videos.length;
+            playVideo(prevIndex, true);
+        }
     }
     
     // 更新播放/暂停按钮
