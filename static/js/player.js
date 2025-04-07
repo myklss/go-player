@@ -33,6 +33,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 检测是否是移动设备
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     
+    // 添加拖动进度条状态标记
+    let isUserSeeking = false;
+    
     // 初始化播放器
     function initPlayer() {
         // 检查访问码状态
@@ -511,6 +514,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // 播放指定索引的视频
     function playVideo(index, addToHistory = true) {
         if (index >= 0 && index < videos.length) {
+            // 清除可能的"即将结束"标记
+            videoPlayer.removeAttribute('data-ending-soon');
+            
             // 如果是新视频，需要先加载
             if (currentVideoIndex !== index) {
                 // 尝试平滑切换
@@ -604,7 +610,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const currentTime = videoPlayer.currentTime;
         const duration = videoPlayer.duration || 0;
         
-        if (duration > 0) {
+        if (duration > 0 && !isNaN(duration) && !isNaN(currentTime)) {
             // 更新进度条
             const percentage = (currentTime / duration) * 100;
             progressBar.style.width = `${percentage}%`;
@@ -613,6 +619,19 @@ document.addEventListener('DOMContentLoaded', function() {
             timeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
         }
     }
+    
+    // 立即强制更新进度条，用于确保UI与视频时间同步
+    function forceUpdateProgress() {
+        requestAnimationFrame(updateProgress);
+    }
+    
+    // 监听视频时间更新事件
+    videoPlayer.addEventListener('timeupdate', updateProgress);
+    
+    // 添加更多触发进度更新的事件
+    ['playing', 'seeking', 'seeked', 'canplay', 'loadedmetadata', 'loadeddata'].forEach(event => {
+        videoPlayer.addEventListener(event, forceUpdateProgress);
+    });
     
     // 鼠标滚轮事件处理 - 切换视频
     document.addEventListener('wheel', (e) => {
@@ -865,13 +884,34 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 点击进度条跳转
     progressContainer.addEventListener('click', (e) => {
+        e.stopPropagation(); // 阻止事件冒泡
+        
+        if (!videoPlayer.duration || isNaN(videoPlayer.duration)) {
+            return; // 如果视频未加载或时长无效，则退出
+        }
+        
+        // 标记用户正在手动调整进度
+        isUserSeeking = true;
+        
         const rect = progressContainer.getBoundingClientRect();
         const pos = (e.clientX - rect.left) / rect.width;
-        videoPlayer.currentTime = pos * videoPlayer.duration;
+        const newTime = pos * videoPlayer.duration;
+        
+        console.log(`进度条点击: 位置=${pos.toFixed(2)}, 目标时间=${newTime.toFixed(2)}秒`);
+        
+        // 设置视频时间
+        videoPlayer.currentTime = newTime;
+        
+        // 立即更新进度条，不等待timeupdate事件
         updateProgress();
         
         // 重新显示控制栏并重置计时器
         showControls();
+        
+        // 延迟一小段时间后才取消用户调整标记，避免误触发结束逻辑
+        setTimeout(() => {
+            isUserSeeking = false;
+        }, 1000);
     });
     
     // 进度条拖动（移动设备上的滑动）
@@ -879,38 +919,91 @@ document.addEventListener('DOMContentLoaded', function() {
     
     progressContainer.addEventListener('touchstart', (e) => {
         isDraggingProgress = true;
+        isUserSeeking = true; // 标记用户正在手动调整进度
         updateProgressFromTouch(e.touches[0]);
         e.stopPropagation();
-    }, { passive: true });
+        e.preventDefault(); // 防止触发其他事件
+    }, { passive: false });
     
     document.addEventListener('touchmove', (e) => {
         if (isDraggingProgress) {
             updateProgressFromTouch(e.touches[0]);
             e.stopPropagation();
+            e.preventDefault(); // 防止页面滚动
         }
-    }, { passive: true });
+    }, { passive: false });
     
-    document.addEventListener('touchend', () => {
+    document.addEventListener('touchend', (e) => {
         if (isDraggingProgress) {
+            // 确保最后一次拖动结束后也更新了进度
+            if (e.changedTouches && e.changedTouches.length > 0) {
+                updateProgressFromTouch(e.changedTouches[0]);
+            }
+            
             // 拖动结束后重新显示控制栏并重置计时器
             showControls();
             isDraggingProgress = false;
+            
+            // 确保视频继续播放（如果之前是播放状态）
+            if (!videoPlayer.paused) {
+                try {
+                    videoPlayer.play().catch(err => {
+                        console.error("拖动后恢复播放失败:", err);
+                    });
+                } catch (err) {
+                    console.error("尝试恢复播放出错:", err);
+                }
+            }
+            
+            // 记录日志，帮助调试
+            console.log(`进度条拖动结束: 当前时间=${videoPlayer.currentTime.toFixed(2)}秒`);
+            
+            // 延迟一小段时间后才取消用户调整标记，避免误触发结束逻辑
+            setTimeout(() => {
+                isUserSeeking = false;
+            }, 1000);
+            
+            e.stopPropagation();
+            e.preventDefault();
         }
-    });
+    }, { passive: false });
     
     function updateProgressFromTouch(touch) {
+        if (!videoPlayer.duration || isNaN(videoPlayer.duration)) {
+            return; // 如果视频未加载或时长无效，则退出
+        }
+        
         const rect = progressContainer.getBoundingClientRect();
         let pos = (touch.clientX - rect.left) / rect.width;
         
         // 确保pos在0-1范围内
         pos = Math.max(0, Math.min(1, pos));
         
-        videoPlayer.currentTime = pos * videoPlayer.duration;
-        updateProgress();
+        const newTime = pos * videoPlayer.duration;
+        
+        // 只有当位置发生明显变化时才更新（防止微小抖动）
+        if (Math.abs(videoPlayer.currentTime - newTime) > 0.5) {
+            console.log(`拖动进度条: 位置=${pos.toFixed(2)}, 目标时间=${newTime.toFixed(2)}秒`);
+            
+            try {
+                // 设置视频时间
+                videoPlayer.currentTime = newTime;
+                
+                // 确保进度条立即反映更新后的位置
+                forceUpdateProgress();
+            } catch (err) {
+                console.error("设置视频时间失败:", err);
+            }
+        }
+        
+        // 无论如何更新UI，保持用户体验流畅
+        progressBar.style.width = `${pos * 100}%`;
+        
+        // 更新时间显示
+        if (videoPlayer.duration) {
+            timeDisplay.textContent = `${formatTime(newTime)} / ${formatTime(videoPlayer.duration)}`;
+        }
     }
-    
-    // 监听视频时间更新事件
-    videoPlayer.addEventListener('timeupdate', updateProgress);
     
     // 监听视频元数据加载事件
     videoPlayer.addEventListener('loadedmetadata', () => {
@@ -944,7 +1037,76 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // 视频播放结束时自动播放下一个
     videoPlayer.addEventListener('ended', () => {
-        playNextVideo();
+        console.log("视频播放结束事件(ended)触发，准备播放下一个视频");
+        // 重要：确保不会因为其他原因忽略播放下一个视频的指令
+        setTimeout(() => {
+            playNextVideo();
+        }, 50);
+    });
+    
+    // 添加备用机制检测视频是否接近结束
+    videoPlayer.addEventListener('timeupdate', () => {
+        // 如果视频已加载且播放时间接近结束（还剩0.5秒），准备下一个视频
+        // 但如果用户正在手动拖动进度条，则不触发自动播放下一个视频
+        if (videoLoaded && !videoPlayer.paused && videoPlayer.duration > 0 && !isUserSeeking && !isDraggingProgress) {
+            const timeLeft = videoPlayer.duration - videoPlayer.currentTime;
+            
+            // 记录接近视频结尾的状态，便于调试
+            if (timeLeft < 1) {
+                console.log(`视频接近结束: 剩余时间=${timeLeft.toFixed(2)}秒, 总时长=${videoPlayer.duration.toFixed(2)}秒`);
+            }
+            
+            // 更保守的阈值，如果距离结束不到0.3秒，也认为已结束
+            if (timeLeft > 0 && timeLeft < 0.3) {
+                console.log("视频即将结束，准备播放下一个视频");
+                
+                // 确保只触发一次，通过设置标记
+                if (!videoPlayer.hasAttribute('data-ending-soon')) {
+                    videoPlayer.setAttribute('data-ending-soon', 'true');
+                    
+                    // 不等待，直接播放下一个视频
+                    // 某些视频格式在最后可能不会触发ended事件
+                    console.log("检测到视频已实际播放到最后，手动播放下一个");
+                    playNextVideo();
+                }
+            }
+        }
+    });
+    
+    // 监视视频是否卡死在结束位置但没有触发ended事件
+    setInterval(() => {
+        if (videoLoaded && !videoPlayer.paused && videoPlayer.currentTime > 0 && videoPlayer.duration > 0) {
+            // 如果视频播放到最后0.1秒但超过2秒没有变化，认为是卡在结尾
+            const timeLeft = videoPlayer.duration - videoPlayer.currentTime;
+            if (timeLeft < 0.1 && !isUserSeeking && !isDraggingProgress) {
+                const now = Date.now();
+                
+                if (!videoPlayer.lastTimeUpdateAt) {
+                    videoPlayer.lastTimeUpdateAt = now;
+                    videoPlayer.lastCurrentTime = videoPlayer.currentTime;
+                } else if (now - videoPlayer.lastTimeUpdateAt > 2000 && 
+                           Math.abs(videoPlayer.currentTime - videoPlayer.lastCurrentTime) < 0.01) {
+                    // 2秒内currentTime几乎没变化，且接近结尾，认为视频卡住了
+                    console.log("检测到视频可能卡在结尾位置，强制播放下一个");
+                    playNextVideo();
+                    // 重置监测状态
+                    delete videoPlayer.lastTimeUpdateAt;
+                    delete videoPlayer.lastCurrentTime;
+                }
+            } else {
+                // 更新最后检测时间和位置
+                videoPlayer.lastTimeUpdateAt = now;
+                videoPlayer.lastCurrentTime = videoPlayer.currentTime;
+            }
+        }
+    }, 1000);
+    
+    // 确保播放视频过程中记录currentTime变化
+    videoPlayer.addEventListener('timeupdate', () => {
+        if (!videoPlayer.paused) {
+            videoPlayer.lastTimeUpdateAt = Date.now();
+            videoPlayer.lastCurrentTime = videoPlayer.currentTime;
+        }
     });
     
     // 处理屏幕方向变化
@@ -976,19 +1138,55 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // 处理网络状态变化
+    let loadingPromptTimeout = null;
+    
     videoPlayer.addEventListener('stalled', () => {
-        // 只有在非全屏模式和iOS设备退出全屏过程中才显示加载提示
-        if (!isFullScreen && !(isMobile && videoPlayer.hasAttribute('data-was-playing'))) {
-            startPrompt.classList.remove('hidden');
-            startPrompt.textContent = "视频加载中...";
+        // 清除之前的超时
+        if (loadingPromptTimeout) {
+            clearTimeout(loadingPromptTimeout);
         }
+        
+        // 延迟显示加载提示，避免短暂网络波动导致错误提示
+        loadingPromptTimeout = setTimeout(() => {
+            // 仅当视频确实暂停缓冲且尚未足够缓冲时才显示提示
+            if (!isFullScreen && 
+                !(isMobile && videoPlayer.hasAttribute('data-was-playing')) &&
+                videoPlayer.readyState < 3 && // HAVE_FUTURE_DATA(3)以下表示缓冲不足
+                !videoPlayer.paused) {  // 确保视频不是用户主动暂停的
+                startPrompt.classList.remove('hidden');
+                startPrompt.textContent = "视频加载中...";
+            }
+        }, 1000); // 延迟1秒，避免闪烁
     });
     
-    videoPlayer.addEventListener('canplay', () => {
-        if (startPrompt.textContent === "视频加载中...") {
-            hideStartPrompt();
-        }
+    // 监听更多网络和缓冲事件，确保正确隐藏加载提示
+    ['canplay', 'playing', 'timeupdate', 'progress'].forEach(event => {
+        videoPlayer.addEventListener(event, () => {
+            // 清除显示加载提示的超时
+            if (loadingPromptTimeout) {
+                clearTimeout(loadingPromptTimeout);
+                loadingPromptTimeout = null;
+            }
+            
+            // 如果提示是"视频加载中"，则隐藏它
+            if (startPrompt.textContent === "视频加载中...") {
+                hideStartPrompt();
+            }
+        });
     });
+    
+    // 移动端专用检测 - 每5秒检查一次视频是否实际在播放，如果是则确保提示被隐藏
+    if (isMobile) {
+        setInterval(() => {
+            if (!videoPlayer.paused && 
+                videoPlayer.currentTime > 0 && 
+                startPrompt.textContent === "视频加载中..." && 
+                !startPrompt.classList.contains('hidden')) {
+                console.log("检测到视频正在播放但提示仍显示，强制隐藏提示");
+                hideStartPrompt();
+            }
+        }, 5000);
+    }
     
     // 添加专门监听iOS全屏事件
     if (isMobile) {
